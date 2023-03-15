@@ -12,3 +12,6 @@ gen
 
 # Node
 /app/src/node_modules
+
+# DB
+/db/data

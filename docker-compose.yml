@@ -13,3 +13,16 @@ services:
       tty: true
       volumes:
         - ./app/src:/var/www/app
+
+    db:
+      build: ./db
+      ports:
+        - "3306:3306"
+      volumes:
+        - ./db/data:/var/lib/mysql
+      environment:
+        - TZ=JST
+        - MYSQL_DATABASE=mariadb
+        - MYSQL_USER=mariadb
+        - MYSQL_PASSWORD=mariadb
+        - MYSQL_ROOT_PASSWORD=mariadb
