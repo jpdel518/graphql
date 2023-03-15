@@ -8,7 +8,8 @@ RUN npm install
 
 COPY src .
 
-EXPOSE 3000
+EXPOSE 4000
 
-ENTRYPOINT ["/bin/sh", "-c", "while :; do sleep 10; done"]
-CMD [ "node", "index.js" ]
+#ENTRYPOINT ["/bin/sh", "-c", "while :; do sleep 10; done"]
+#CMD [ "node", "index.js" ]
+CMD [ "npx", "nodemon", "index.js" ]
