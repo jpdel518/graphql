@@ -1,0 +1,9 @@
+# IntelliJ project files
+.idea
+*.iml
+out
+gen
+
+# node modules
+./src/node_modules
+./src/*.log
