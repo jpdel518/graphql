@@ -2,8 +2,7 @@ const { ApolloServer, gql } = require('apollo-server');
 const { RESTDataSource } = require('apollo-datasource-rest');
 const axios = require('axios');
 const { PrismaClient } = require('@prisma/client');
-
-const prisma = new PrismaClient();
+require('dotenv').config()
 
 // DataSourceはREST API用のデータソースライブラリ
 // データのキャッシュ等を自動で行ってくれる
@@ -33,7 +32,17 @@ class jsonPlaceAPI extends RESTDataSource {
 const typeDefs = gql`
     type User {
         id: ID!
-        name: String!
+        name: String
+        email: String!
+        client_id: String!
+        client_secret: String!
+        client_code: String
+        client_token: String
+        myPosts: [Post]
+    }
+    type JsonPlaceUser {
+        id: ID!
+        name: String
         email: String!
         myPosts: [Post]
     }
@@ -47,13 +56,16 @@ const typeDefs = gql`
 
     type Query {
         hello(name: String!): String
-        users: [User!]!
-        user(id: ID!): User
+        jsonPlaceUsers: [JsonPlaceUser!]!
+        jsonPlaceUser(id: ID!): JsonPlaceUser
         posts: [Post!]!
+        me: User
     }
 
     type Mutation {
-        createUser(name: String!, email: String!): User
+        getCode(client_id: String!): String
+        signup(name: String!, email: String!, client_id: String!, client_secret: String!): User
+        signin(client_id: String!, client_code: String!): String
         updateUser(id: Int!, name: String, email: String): User
         deleteUser(id: Int!): User
     }
@@ -67,36 +79,85 @@ const resolvers = {
             return `Hello world! ${args.name}`;
         },
         // 使用しない引数はアンダースコアで省略するのが通例（parent => _, args => __）
-        users: async (_, __, { dataSources }) => {
+        jsonPlaceUsers: async (_, __, { dataSources, currentUser }) => {
             // const response = await axios.get('https://jsonplaceholder.typicode.com/users');
             // return response.data;
+            if (!currentUser) throw new Error("Not verified user requested");
             return dataSources.jsonPlaceAPI.getUsers();
         },
-        user: async (_, args, { dataSources }) => {
+        jsonPlaceUser: async (_, args, { dataSources, currentUser }) => {
             // let response = await axios.get(`https://jsonplaceholder.typicode.com/users/${args.id}`);
             // response = await axios.get(`https://jsonplaceholder.typicode.com/posts?userId=${args.id}`);
             // user = Object.assign({}, user, { myPosts: response.data });
             // return response.data;
+            if (!currentUser) throw new Error("Not verified user requested");
             return dataSources.jsonPlaceAPI.getUser(args.id);
         },
-        posts: async (_, __, { dataSources }) => {
+        posts: async (_, __, { dataSources, currentUser }) => {
             // const response = await axios.get('https://jsonplaceholder.typicode.com/posts');
             // return response.data;
+            if (!currentUser) throw new Error("Not verified user requested");
             return dataSources.jsonPlaceAPI.getPosts();
-        }
+        },
+        me: (_, __, { currentUser }) => (currentUser)
     },
     Mutation: {
-        createUser: (_, args) => {
+        getCode: async (_, args) => {
+            // const response = await axios.get(`https://github.com/login/oauth/authorize?client_id=${args.client_id}&scope=user`);
+            // console.log('aaaaa', response);
+            return `https://github.com/login/oauth/authorize?client_id=${args.client_id}&scope=user`;
+        },
+        signup: async (_, args) => {
+            // const response = await axios.get(`https://github.com/login/oauth/authorize?client_id=${args.clientId}&scope=user`);
+            // console.log('signup', response);
             return prisma.user.create({
                 data: {
                     name: args.name,
-                    email: args.email
+                    email: args.email,
+                    client_id: args.client_id,
+                    client_secret: args.client_secret,
                 }
             });
         },
+        signin: async (_, args) => {
+            let user = await prisma.user.findFirst({
+                where: {
+                    client_id: args.client_id,
+                }
+            });
+            console.log(user);
+            if (!user) return null;
+
+            const response = await axios.post(`https://github.com/login/oauth/access_token`, {
+                client_id: user.client_id,
+                client_secret: user.client_secret,
+                code: args.client_code,
+            }, {
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json'
+                }
+            });
+            const data = JSON.parse(JSON.stringify(response.data));
+            console.log(data);
+            if (data.error) throw new Error(data.error);
+
+            user = await prisma.user.update({
+                where: {
+                    id: user.id
+                },
+                data: {
+                    name: data.name,
+                    client_code: args.client_code,
+                    client_token: data.access_token,
+                }
+            });
+            return user.client_token;
+        },
         // name, emailのどちらかがあれば更新
         // 値が入っていない方のデータは更新されずにそのままになる
-        updateUser: (_, args) => {
+        updateUser: (_, args, { currentUser }) => {
+            if (!currentUser) throw new Error("Not verified user requested");
             return prisma.user.update({
                 where: {
                     id: args.id
@@ -107,7 +168,8 @@ const resolvers = {
                 }
             });
         },
-        deleteUser: (_, args) => {
+        deleteUser: (_, args, { currentUser }) => {
+            if (!currentUser) throw new Error("Not verified user requested");
             return prisma.user.delete({
                 where: {
                     id: args.id
@@ -124,7 +186,24 @@ const resolvers = {
     }
 };
 
-const server = new ApolloServer({ typeDefs, resolvers, dataSources: () => ({ jsonPlaceAPI: new jsonPlaceAPI() }) });
+const prisma = new PrismaClient();
+
+const server = new ApolloServer({
+    typeDefs,
+    resolvers,
+    context: async ({ req }) => {
+        const token = req.headers.authorization || "";
+        const currentUser = await prisma.user.findFirst({
+            where: {
+                client_token: token
+            }
+        });
+        console.log(token);
+        console.log(currentUser);
+        return { currentUser }
+    },
+    dataSources: () => ({ jsonPlaceAPI: new jsonPlaceAPI() })
+});
 server.listen().then(({ url }) => {
     console.log(`Server ready at ${url}`);
 });

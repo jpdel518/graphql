@@ -1,8 +1,12 @@
 -- CreateTable
 CREATE TABLE `User` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
-    `email` VARCHAR(191) NOT NULL,
+    `email` VARCHAR(191) NULL,
     `name` VARCHAR(191) NULL,
+    `client_id` VARCHAR(191) NOT NULL,
+    `client_secret` VARCHAR(191) NOT NULL,
+    `client_code` VARCHAR(191) NULL,
+    `client_token` VARCHAR(191) NULL,
 
     UNIQUE INDEX `User_email_key`(`email`),
     PRIMARY KEY (`id`)
