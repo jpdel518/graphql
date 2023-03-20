@@ -29,8 +29,8 @@ services:
       # docker-composeのvolumesでマウントするとコピーが作成される？そのせいでmacに._XXXXファイルが作成される
       # その結果再ビルド時に「chown: changing ownership of '/var/lib/mysql/ operation not permitted」が発生する
       # volume mountする際はDockerfile側のVOLUME[]で対応が必要
-#      volumes:
-#        - ./db/data:/var/lib/mysql
+      volumes:
+        - ~/.docker/data/graphql:/var/lib/mysql
       environment:
         - TZ=JST
         - MYSQL_DATABASE=mariadb

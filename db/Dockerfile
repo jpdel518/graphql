@@ -8,8 +8,8 @@ ARG TZ=UTC
 ENV TZ ${TZ}
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
-COPY ./init.sql /docker-entrypoint-initdb.d/
+#COPY init.sql /docker-entrypoint-initdb.d/
 
 EXPOSE 3306
 
-VOLUME ["./data:/var/lib/mysql"]
+#VOLUME ["./data:/var/lib/mysql"]
