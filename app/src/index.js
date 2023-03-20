@@ -65,7 +65,8 @@ const typeDefs = gql`
     type Mutation {
         getCode(client_id: String!): String
         signup(name: String!, email: String!, client_id: String!, client_secret: String!): User
-        signin(client_id: String!, client_code: String!): String
+        signin(client_id: String!): User
+        oauth(client_id: String!, client_code: String!): String
         updateUser(id: Int!, name: String, email: String): User
         deleteUser(id: Int!): User
     }
@@ -105,12 +106,12 @@ const resolvers = {
         getCode: async (_, args) => {
             // const response = await axios.get(`https://github.com/login/oauth/authorize?client_id=${args.client_id}&scope=user`);
             // console.log('aaaaa', response);
-            return `https://github.com/login/oauth/authorize?client_id=${args.client_id}&scope=user`;
+                return `https://github.com/login/oauth/authorize?client_id=${args.client_id}&scope=user`;
         },
         signup: async (_, args) => {
             // const response = await axios.get(`https://github.com/login/oauth/authorize?client_id=${args.clientId}&scope=user`);
             // console.log('signup', response);
-            return prisma.user.create({
+            let user = await prisma.user.create({
                 data: {
                     name: args.name,
                     email: args.email,
@@ -118,14 +119,27 @@ const resolvers = {
                     client_secret: args.client_secret,
                 }
             });
+            console.log("signup user", user);
         },
         signin: async (_, args) => {
+            console.log("signin args", args);
             let user = await prisma.user.findFirst({
                 where: {
                     client_id: args.client_id,
                 }
             });
-            console.log(user);
+            console.log("signin user", user);
+
+            return user;
+        },
+        oauth: async (_, args) => {
+            console.log("oauth args", args);
+            let user = await prisma.user.findFirst({
+                where: {
+                    client_id: args.client_id,
+                }
+            });
+            console.log("oauth user", user);
             if (!user) return null;
 
             const response = await axios.post(`https://github.com/login/oauth/access_token`, {
@@ -139,7 +153,7 @@ const resolvers = {
                 }
             });
             const data = JSON.parse(JSON.stringify(response.data));
-            console.log(data);
+            console.log("oauth token", data);
             if (data.error) throw new Error(data.error);
 
             user = await prisma.user.update({
@@ -198,8 +212,8 @@ const server = new ApolloServer({
                 client_token: token
             }
         });
-        console.log(token);
-        console.log(currentUser);
+        console.log("context headerToken", token);
+        console.log("context currentUser", currentUser);
         return { currentUser }
     },
     dataSources: () => ({ jsonPlaceAPI: new jsonPlaceAPI() })
