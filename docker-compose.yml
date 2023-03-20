@@ -14,6 +14,14 @@ services:
       volumes:
         - ./app/src:/var/www/app
 
+    client:
+      build: ./client
+      tty: true
+      ports:
+        - "3000:3000"
+      volumes:
+        - ./client/src:/var/www/app
+
     db:
       build: ./db
       ports:
