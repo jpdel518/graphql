@@ -1,5 +1,16 @@
-const { ApolloServer, gql } = require('apollo-server');
+const { ApolloServer, gql } = require('apollo-server-express');
+const {
+    ApolloServerPluginDrainHttpServer,
+    ApolloServerPluginLandingPageLocalDefault,
+} = require("apollo-server-core");
+const { makeExecutableSchema } = require('@graphql-tools/schema');
+const { WebSocketServer } = require('ws');
+const { useServer } = require('graphql-ws/lib/use/ws');
+const { PubSub } = require('graphql-subscriptions');
+const express = require('express');
 const { RESTDataSource } = require('apollo-datasource-rest');
+const expressPlayground = require('graphql-playground-middleware-express').default;
+const { createServer } = require('http');
 const axios = require('axios');
 const { PrismaClient } = require('@prisma/client');
 require('dotenv').config()
@@ -52,6 +63,18 @@ const typeDefs = gql`
         title: String!
         body: String!
         userId: ID!
+        author: User
+    }
+
+    enum MutationType {
+        CREATED
+        UPDATED
+        DELETED
+    }
+
+    type PostSubscription {
+        mutation: MutationType!
+        data: Post!
     }
 
     type Query {
@@ -69,6 +92,11 @@ const typeDefs = gql`
         oauth(client_id: String!, client_code: String!): String
         updateUser(id: Int!, name: String, email: String): User
         deleteUser(id: Int!): User
+        addPost(title: String!, body: String!): Post
+    }
+
+    type Subscription {
+        newPost: PostSubscription!
     }
 `;
 
@@ -98,7 +126,11 @@ const resolvers = {
             // const response = await axios.get('https://jsonplaceholder.typicode.com/posts');
             // return response.data;
             if (!currentUser) throw new Error("Not verified user requested");
-            return dataSources.jsonPlaceAPI.getPosts();
+            let posts = prisma.post.findMany();
+            if (!posts || posts.length <= 0) {
+                posts = dataSources.jsonPlaceAPI.getPosts();
+            }
+            return posts;
         },
         me: (_, __, { currentUser }) => (currentUser)
     },
@@ -120,6 +152,8 @@ const resolvers = {
                 }
             });
             console.log("signup user", user);
+
+            return user;
         },
         signin: async (_, args) => {
             console.log("signin args", args);
@@ -189,35 +223,124 @@ const resolvers = {
                     id: args.id
                 }
             });
+        },
+        addPost: async (_, args, { currentUser }) => {
+            if (!currentUser) throw new Error("Not Verified user requested");
+            const post = await prisma.post.create({
+                data: {
+                    title: args.title,
+                    body: args.body,
+                    userId: currentUser.id,
+                }
+            });
+            // subscriptionのpublish
+            // ポイントはpayloadのkey値がSubscription定義名と一致していること
+            await pubsub.publish("post-added", {
+                newPost: {
+                    mutation: 'CREATED',
+                    data: post
+                }
+            });
+            return post;
+        }
+    },
+    Subscription: {
+        newPost: {
+            subscribe: (parent, args, context) => pubsub.asyncIterator('post-added')
         }
     },
     User: {
-        myPosts: async (parent, __, { dataSources }) => {
-            // const response = await axios.get('https://jsonplaceholder.typicode.com/posts');
-            const posts = await dataSources.jsonPlaceAPI.getPosts();
-            return posts.filter(post => post.userId === parent.id);
+        myPosts: async (parent, __, context) => {
+            let posts = await prisma.post.findMany({
+                where: {
+                    userId: parent.id
+                }
+            });
+            if ( (!posts || posts.length <= 0) && context.hasOwnProperty("dataSources") ) {
+                const response = await axios.get('https://jsonplaceholder.typicode.com/posts');
+                sourcedPosts = await context.dataSources.jsonPlaceAPI.getPosts();
+                posts = sourcedPosts.filter(post => post.userId === parent.id);
+            }
+            return posts;
+        }
+    },
+    Post: {
+        author: async(parent, __, context) => {
+            let user = await prisma.user.findUnique({
+                where: {
+                    id: parent.userId
+                }
+            });
+            // console.log("author parent", parent);
+            // console.log("author context", context);
+            // console.log("author user", user);
+            if (!user && context.hasOwnProperty("dataSources")) {
+                user = await dataSources.jsonPlaceAPI.getUser(parent.userId)
+            }
+            return user;
         }
     }
 };
 
 const prisma = new PrismaClient();
+// イベント用にin-memory上で動作するpubsubシステムを使用
+const pubsub = new PubSub();
 
-const server = new ApolloServer({
-    typeDefs,
-    resolvers,
-    context: async ({ req }) => {
-        const token = req.headers.authorization || "";
-        const currentUser = await prisma.user.findFirst({
-            where: {
-                client_token: token
-            }
-        });
-        console.log("context headerToken", token);
-        console.log("context currentUser", currentUser);
-        return { currentUser }
-    },
-    dataSources: () => ({ jsonPlaceAPI: new jsonPlaceAPI() })
-});
-server.listen().then(({ url }) => {
-    console.log(`Server ready at ${url}`);
-});
+(async () => {
+    // expressサーバーからhttpサーバーを作成
+    // httpサーバーにwebsocketサーバーとapolloサーバーがアタッチされる
+    const app = new express();
+    const httpServer = createServer(app);
+    const schema = makeExecutableSchema({ typeDefs, resolvers });
+    // subscription用にwebsocketエンドポイントを作成. httpサーバーを使用
+    const wsServer = new WebSocketServer({
+        server: httpServer,
+        path: '/graphql',
+    });
+    // websocketサーバーのlistening開始. Apolloサーバーに渡すGraphQLSchemaと同じものをwebsocketサーバーにも渡す
+    const serverCleanup = useServer({ schema }, wsServer);
+
+    const server = new ApolloServer({
+        schema,
+        context: async ({ req }) => {
+            const token = req.headers.authorization || "";
+            const currentUser = await prisma.user.findFirst({
+                where: {
+                    client_token: token
+                }
+            });
+            // console.log("context headerToken", token);
+            // console.log("context currentUser", currentUser);
+            return { currentUser, pubsub }
+        },
+        dataSources: () => ({ jsonPlaceAPI: new jsonPlaceAPI() }),
+        plugins: [
+            // httpサーバーを停止
+            ApolloServerPluginDrainHttpServer({ httpServer }),
+            // websocketサーバーを停止
+            {
+                async serverWillStart() {
+                    return {
+                        async drainServer() {
+                            await serverCleanup.dispose();
+                        },
+                    };
+                },
+            },
+            ApolloServerPluginLandingPageLocalDefault({ embed: true }),
+        ],
+    });
+    await server.start();
+    server.applyMiddleware({ app })
+
+    app.get("/", (req, res) => res.end('Welcome to the GraphQL API'));
+    app.get("/playground", expressPlayground({ endpoint: '/graphql' }));
+    httpServer.listen(4000, () => {
+        console.log(`GraphQL server running http://localhost:4000${server.graphqlPath}`);
+        console.log(`Subscription server running ws://localhost:4000${server.graphqlPath}`);
+    });
+    // server.listen().then(({ url, subscriptionsUrl }) => {
+    //     console.log(`Server ready at ${url}`);
+    //     console.log(`Subscriptions ready at ${subscriptionsUrl}`);
+    // });
+})();

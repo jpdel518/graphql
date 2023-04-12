@@ -10,13 +10,17 @@ nodemodulesが作られていないためnpm installを手動で実行する必�
 8. DockerfileのENTRYPOINTをコメントアウト
 
 ## 起動
-1. docker-compose up -d --buildでビルドを実行
+1. docker-compose up -dでビルドを実行
 2. docker-compose exec -it client sh
 3. npm startを実行
 4. ブラウザでhttp://localhost:3000にアクセス
 5. （optional...もしDBが空になってしまったら）
 6. docker-compose exec -it node sh
 7. npx prisma migrate dev
+
+## リクエストお試し実行環境
+- Apollo Studio: `http://localhost:8080/graphql`
+- GraphQL Playground: `http://localhost:8080/playground`
 
 ## GitHubのOAuthによる認証・認可の流れ
 ### 登録
