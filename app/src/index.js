@@ -11,8 +11,11 @@ const express = require('express');
 const { RESTDataSource } = require('apollo-datasource-rest');
 const expressPlayground = require('graphql-playground-middleware-express').default;
 const { createServer } = require('http');
+const path = require('path')
+const fs = require('fs')
 const axios = require('axios');
 const { PrismaClient } = require('@prisma/client');
+const { GraphQLUpload, graphqlUploadExpress } = require("graphql-upload-minimal");
 require('dotenv').config()
 
 // DataSourceはREST API用のデータソースライブラリ
@@ -41,6 +44,7 @@ class jsonPlaceAPI extends RESTDataSource {
 }
 
 const typeDefs = gql`
+    scalar Upload
     type User {
         id: ID!
         name: String
@@ -62,8 +66,9 @@ const typeDefs = gql`
         id: ID!
         title: String!
         body: String!
-        userId: ID!
+        user_id: ID!
         author: User
+        image_url: String
     }
 
     enum MutationType {
@@ -92,7 +97,7 @@ const typeDefs = gql`
         oauth(client_id: String!, client_code: String!): String
         updateUser(id: Int!, name: String, email: String): User
         deleteUser(id: Int!): User
-        addPost(title: String!, body: String!): Post
+        addPost(title: String!, body: String!, file: Upload): Post
     }
 
     type Subscription {
@@ -101,6 +106,7 @@ const typeDefs = gql`
 `;
 
 const resolvers = {
+    Upload: GraphQLUpload,
     Query: {
         hello: (parent, args) => {
             console.log('parent', parent);
@@ -226,11 +232,22 @@ const resolvers = {
         },
         addPost: async (_, args, { currentUser }) => {
             if (!currentUser) throw new Error("Not Verified user requested");
+            // ファイルアップロード
+            let imageURL = '';
+            if (args.file) {
+                const { createReadStream, filename, mimetype, encoding } = await args.file;
+                const stream = createReadStream()
+                const pathName = path.join(__dirname, `/public/images/${filename}`)
+                await stream.pipe(fs.createWriteStream(pathName))
+                imageURL = `http://localhost:8080/images/${filename}`
+            }
+
             const post = await prisma.post.create({
                 data: {
                     title: args.title,
                     body: args.body,
-                    userId: currentUser.id,
+                    user_id: currentUser.id,
+                    image_url: imageURL
                 }
             });
             // subscriptionのpublish
@@ -253,13 +270,13 @@ const resolvers = {
         myPosts: async (parent, __, context) => {
             let posts = await prisma.post.findMany({
                 where: {
-                    userId: parent.id
+                    user_id: parent.id
                 }
             });
             if ( (!posts || posts.length <= 0) && context.hasOwnProperty("dataSources") ) {
                 const response = await axios.get('https://jsonplaceholder.typicode.com/posts');
                 sourcedPosts = await context.dataSources.jsonPlaceAPI.getPosts();
-                posts = sourcedPosts.filter(post => post.userId === parent.id);
+                posts = sourcedPosts.filter(post => post.user_id === parent.id);
             }
             return posts;
         }
@@ -268,14 +285,14 @@ const resolvers = {
         author: async(parent, __, context) => {
             let user = await prisma.user.findUnique({
                 where: {
-                    id: parent.userId
+                    id: parent.user_id
                 }
             });
             // console.log("author parent", parent);
             // console.log("author context", context);
             // console.log("author user", user);
             if (!user && context.hasOwnProperty("dataSources")) {
-                user = await dataSources.jsonPlaceAPI.getUser(parent.userId)
+                user = await dataSources.jsonPlaceAPI.getUser(parent.user_id)
             }
             return user;
         }
@@ -290,6 +307,12 @@ const pubsub = new PubSub();
     // expressサーバーからhttpサーバーを作成
     // httpサーバーにwebsocketサーバーとapolloサーバーがアタッチされる
     const app = new express();
+    // expressのstaticミドルウェアを使用してpublicディレクトリを公開
+    app.use(
+      '/images',
+      express.static(path.join(__dirname, '/public/images'))
+    );
+    app.use(graphqlUploadExpress());
     const httpServer = createServer(app);
     const schema = makeExecutableSchema({ typeDefs, resolvers });
     // subscription用にwebsocketエンドポイントを作成. httpサーバーを使用

@@ -17,9 +17,11 @@ import {MantineProvider} from "@mantine/core";
 import {getMainDefinition} from "@apollo/client/utilities";
 import {GraphQLWsLink} from "@apollo/client/link/subscriptions";
 import {createClient} from "graphql-ws";
+import {createUploadLink} from "apollo-upload-client";
 
-const httpLink = createHttpLink({
+const httpLink = createUploadLink({
   uri: "http://localhost:8080/graphql",
+  headers: { "apollo-require-preflight": "true" }
 });
 
 const apolloAuthContext = setContext(async (_, {headers}) => {

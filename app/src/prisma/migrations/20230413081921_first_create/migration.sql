@@ -18,10 +18,11 @@ CREATE TABLE `Post` (
     `title` VARCHAR(191) NOT NULL,
     `body` VARCHAR(191) NULL,
     `published` BOOLEAN NOT NULL DEFAULT false,
-    `userId` INTEGER NULL,
+    `user_id` INTEGER NULL,
+    `image_url` VARCHAR(191) NULL,
 
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- AddForeignKey
-ALTER TABLE `Post` ADD CONSTRAINT `Post_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE `Post` ADD CONSTRAINT `Post_user_id_fkey` FOREIGN KEY (`user_id`) REFERENCES `User`(`id`) ON DELETE SET NULL ON UPDATE CASCADE;

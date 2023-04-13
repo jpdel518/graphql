@@ -51,7 +51,7 @@ function Authorized() {
               component="a"
               href="http://localhost:3000/posts"
             >
-              Posts
+              Show Posts
             </Button>
           </Flex>
         </Paper>

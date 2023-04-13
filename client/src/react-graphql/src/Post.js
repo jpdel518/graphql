@@ -1,6 +1,7 @@
 import {useQuery, gql, useSubscription} from "@apollo/client";
-import {Loader, Text, Paper, Table, Avatar, Title, Container, Stack, Space} from "@mantine/core";
+import {Loader, Text, Table, Title, Container, Space, Image} from "@mantine/core";
 import React from "react";
+import NewPost from "./NewPost";
 
 function Post() {
   const POST_QUERY = gql`
@@ -9,7 +10,8 @@ function Post() {
         id
         title
         body
-        userId
+        user_id
+        image_url
         author {
           email
           name
@@ -25,7 +27,8 @@ function Post() {
           id
           title
           body
-          userId
+          user_id
+          image_url
           author {
             email
             name
@@ -70,6 +73,8 @@ function Post() {
       <Container>
         <Title order={1}>Post Page</Title>
         <Space h="xl" />
+        <NewPost />
+        <Space h="xl" />
         <Title order={2}>Posts</Title>
         <Table>
           <thead>
@@ -78,6 +83,7 @@ function Post() {
             <th>Title</th>
             <th>Body</th>
             <th>Author</th>
+            <th>Image</th>
           </tr>
           </thead>
           <tbody>
@@ -87,6 +93,7 @@ function Post() {
               <td>{post.title}</td>
               <td>{post.body}</td>
               <td>{post.author.name}</td>
+              <td><Image maw={100} src={post.image_url} /></td>
             </tr>
           ))}
           </tbody>
